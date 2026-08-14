@@ -332,27 +332,33 @@ def check_sofmap(item_config, price_history):
 
 def send_daily_links():
     """1日1回送信する巡回リンク集"""
-    message_parts = ["**【ドラクエメタリックシリーズ 巡回チェック】**\n"]
+    send_discord("**【ドラクエメタリックシリーズ 巡回チェック】**", target_url=DISCORD_URL)
+    
     for item in WATCH_ITEMS:
         kw = item["keyword"]
-        encoded_utf8 = urllib.parse.quote(kw)
-        encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
-        links = [
-            f"・[あみあみ](<https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30>)",
-            f"・[Amazon](<https://www.amazon.co.jp/s?k={encoded_utf8}>)",
-            f"・[ビックカメラ](<https://www.biccamera.com/bc/category/?q={encoded_sjis}>)",
-            f"・[ソフマップ](<https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8}>)",
-            f"・[ヨドバシカメラ](<https://www.yodobashi.com/?word={encoded_utf8}>)"
+        # 改行コードなどが混入しないようストリップ＆エンコード
+        clean_kw = kw.strip()
+        encoded_utf8 = urllib.parse.quote(clean_kw)
+        encoded_sjis = urllib.parse.quote(clean_kw.encode('cp932', errors='ignore'))
+        
+        # 1項目ごとに独立したメッセージとして組む（長いURLの折返し・破損防止）
+        lines = [
+            f"🔍 **【{clean_kw}】**",
+            f"・[あみあみ](https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30)",
+            f"・[Amazon](https://www.amazon.co.jp/s?k={encoded_utf8})",
+            f"・[ビックカメラ](https://www.biccamera.com/bc/category/?q={encoded_sjis})",
+            f"・[ソフマップ](https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8})",
+            f"・[ヨドバシカメラ](https://www.yodobashi.com/?word={encoded_utf8})"
         ]
-        message_parts.append(f"🔍 **【{kw}】**\n" + "\n".join(links))
-    
+        send_discord("\n".join(lines), target_url=DISCORD_URL)
+        time.sleep(1)
+
     common_links = [
-        "\n🏠 **【トップページ（直検索不可サイト）】**",
-        "・[スクエニ e-STORE](<https://store.jp.square-enix.com/>)",
-        "・[Joshin web](<https://joshinweb.jp/>)"
+        "🏠 **【トップページ（直検索不可サイト）】**",
+        "・[スクエニ e-STORE](https://store.jp.square-enix.com/)",
+        "・[Joshin web](https://joshinweb.jp/)"
     ]
-    message_parts.append("\n".join(common_links))
-    send_discord("\n\n".join(message_parts), target_url=DISCORD_URL)
+    send_discord("\n".join(common_links), target_url=DISCORD_URL)
 
 def main():
     now_utc = datetime.datetime.now(datetime.timezone.utc)
