@@ -12,7 +12,6 @@ DISCORD_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DISCORD_LOG_URL = os.environ.get("DISCORD_WEBHOOK_URL_LOG") or DISCORD_URL
 DATA_FILE = "data/prices.json"
 
-# 監視対象アイテムの設定（キーワードのみ）
 WATCH_ITEMS = [
     {
         "keyword": "メタリックモンスターズギャラリー"
@@ -22,12 +21,7 @@ WATCH_ITEMS = [
     }
 ]
 
-# ---------------------------------------------------------
-# 0. 価格履歴データ（JSON）管理 ＆ Discord送信関数
-# ---------------------------------------------------------
-
 def load_price_history():
-    """保存された価格履歴をロード"""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -37,7 +31,6 @@ def load_price_history():
     return {}
 
 def save_price_history(data):
-    """最新の価格履歴を保存"""
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     try:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -47,7 +40,6 @@ def save_price_history(data):
         print(f"履歴保存エラー: {e}")
 
 def send_discord(msg, target_url=None):
-    """Discordへのテキスト送信（2000文字制限対策付き）"""
     url = target_url or DISCORD_URL
     if not url:
         print("Webhook URLが設定されていません")
@@ -71,7 +63,6 @@ def send_discord(msg, target_url=None):
         time.sleep(1)
 
 def send_price_list_text(price_history, target_url=None):
-    """保存されている価格リストをテキストメッセージとしてDiscordへ送信"""
     if not price_history:
         send_discord("📊 **【現在の保存価格リスト】**\n現在保存されている価格データはありません。\n（※まだ一度も価格が正常に取得できていないか、初回実行中です）", target_url=target_url)
         return
@@ -103,19 +94,14 @@ def send_price_list_text(price_history, target_url=None):
             send_discord("```\n" + "\n".join(chunk_lines) + "\n```", target_url=target_url)
 
 def sleep_random_delay(min_sec=3, max_sec=8):
-    """Bot判定（BAN）を回避するため、アクセス時間をランダムに分散"""
     wait_time = random.uniform(min_sec, max_sec)
     print(f"[{wait_time:.1f}秒のアクセス分散待機中...]")
     time.sleep(wait_time)
 
 def is_ignored(item_name):
-    """購入済み・通知不要リスト（必要に応じて追加）"""
     return False
 
 def should_notify(old_price, new_price):
-    """
-    価格が前回より下がっていた場合の値下げ検知（5%以上 または 1000円以上ダウン）
-    """
     if new_price is None or old_price is None:
         return False, ""
     
@@ -131,12 +117,7 @@ def should_notify(old_price, new_price):
 
     return False, ""
 
-# ---------------------------------------------------------
-# 2. Webスクレイピング処理 (あみあみ, Amazon, ビックカメラ, ソフマップ)
-# ---------------------------------------------------------
-
 def fetch_html(url, headers=None):
-    """HTTPリクエスト共通処理"""
     if headers is None:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -151,7 +132,6 @@ def fetch_html(url, headers=None):
         return None
 
 def check_amiami(item_config, price_history):
-    """あみあみの検索・価格チェック"""
     sleep_random_delay(2, 5)
     kw = item_config["keyword"]
     encoded_utf8 = urllib.parse.quote(kw)
@@ -190,7 +170,6 @@ def check_amiami(item_config, price_history):
             price_history[store_key] = price
 
 def check_amazon(item_config, price_history):
-    """Amazonの検索・価格チェック"""
     sleep_random_delay(3, 7)
     kw = item_config["keyword"]
     encoded_utf8 = urllib.parse.quote(kw)
@@ -231,7 +210,6 @@ def check_amazon(item_config, price_history):
             price_history[store_key] = price
 
 def check_biccamera(item_config, price_history):
-    """ビックカメラの検索・価格チェック"""
     sleep_random_delay(3, 6)
     kw = item_config["keyword"]
     encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
@@ -273,7 +251,6 @@ def check_biccamera(item_config, price_history):
             price_history[store_key] = price
 
 def check_sofmap(item_config, price_history):
-    """ソフマップの検索・価格チェック"""
     sleep_random_delay(3, 6)
     kw = item_config["keyword"]
     encoded_utf8 = urllib.parse.quote(kw)
@@ -314,16 +291,11 @@ def check_sofmap(item_config, price_history):
 
             price_history[store_key] = price
 
-# ---------------------------------------------------------
-# 3. スケジュール制御 ＆ メイン実行
-# ---------------------------------------------------------
-
 def send_daily_links():
-    """1日1回送信する巡回リンク集（年月日表記＋Markdown短縮リンク）"""
+    """1日1回送信する巡回リンク集（年月日表記 ＋ アイコン・プレビューが出ない形式）"""
     now_jst = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
     date_str = now_jst.strftime('%Y年%m月%d日')
     
-    # 年月日入りのヘッダーを送信
     send_discord(f"🔔 **【ドラクエメタリックシリーズ 本日の巡回リンク】**\n📅 配信日: **{date_str}**", target_url=DISCORD_URL)
     time.sleep(1)
 
@@ -332,21 +304,22 @@ def send_daily_links():
         encoded_utf8 = urllib.parse.quote(kw)
         encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
         
+        # <>で囲むことで、アイコンやプレビューカードの発生を完全に防ぎます
         lines = [
             f"🔍 **【{kw}】**",
-            f"・[あみあみ](https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30)",
-            f"・[Amazon](https://www.amazon.co.jp/s?k={encoded_utf8})",
-            f"・[ビックカメラ](https://www.biccamera.com/bc/category/?q={encoded_sjis})",
-            f"・[ソフマップ](https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8})",
-            f"・[ヨドバシカメラ](https://www.yodobashi.com/?word={encoded_utf8})"
+            f"・あみあみ: <https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30>",
+            f"・Amazon: <https://www.amazon.co.jp/s?k={encoded_utf8}>",
+            f"・ビックカメラ: <https://www.biccamera.com/bc/category/?q={encoded_sjis}>",
+            f"・ソフマップ: <https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8}>",
+            f"・ヨドバシカメラ: <https://www.yodobashi.com/?word={encoded_utf8}>"
         ]
         send_discord("\n".join(lines), target_url=DISCORD_URL)
         time.sleep(1)
 
     common_links = [
         "🏠 **【公式・その他ショップ】**",
-        "・[スクエニ e-STORE](https://store.jp.square-enix.com/)",
-        "・[Joshin web](https://joshinweb.jp/)"
+        "・スクエニ e-STORE: <https://store.jp.square-enix.com/>",
+        "・Joshin web: <https://joshinweb.jp/>"
     ]
     send_discord("\n".join(common_links), target_url=DISCORD_URL)
 
