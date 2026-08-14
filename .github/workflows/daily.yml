@@ -1,9 +1,10 @@
-name: Daily Checker
+name: Metallic Monsters Checker
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 毎日日本時間の朝9時に動く設定
-  workflow_dispatch:      # 手動でいつでも試せる設定
+    # 30分おき（毎時00分と30分）に自動実行
+    - cron: '0,30 * * * *'
+  workflow_dispatch:      # 手動実行ボタン
 
 jobs:
   run:
@@ -16,4 +17,5 @@ jobs:
       - name: Run Script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: python check.py
