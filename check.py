@@ -30,21 +30,31 @@ def send_discord(msg):
 
 def send_daily_links():
     """1日1回送信する巡回リンク集"""
-    send_discord("**【本日のドラクエメタリックシリーズ 巡回チェック】**")
+    message_parts = ["**【本日のドラクエメタリックシリーズ 巡回チェック】**\n"]
+    
+    # キーワードごとの検索直リンク（URLを < > で囲んでプレビュー表示を抑制）
     for kw in KEYWORDS:
         encoded_utf8 = urllib.parse.quote(kw)
         encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
         
         links = [
-            f"・[あみあみ (在庫・割引)](https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30)",
-            f"・[Amazon (価格比較)](https://www.amazon.co.jp/s?k={encoded_utf8})",
-            f"・[ビックカメラ](https://www.biccamera.com/bc/category/?q={encoded_sjis})",
-            f"・[ヨドバシカメラ](https://www.yodobashi.com/?word={encoded_utf8})",
-            f"・[スクエニ e-STORE (公式TOP)](https://store.jp.square-enix.com/)",
-            f"・[Joshin web (公式TOP)](https://joshinweb.jp/)"
+            f"・[あみあみ (在庫・割引)](<https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30>)",
+            f"・[Amazon (価格比較)](<https://www.amazon.co.jp/s?k={encoded_utf8}>)",
+            f"・[ビックカメラ](<https://www.biccamera.com/bc/category/?q={encoded_sjis}>)",
+            f"・[ヨドバシカメラ](<https://www.yodobashi.com/?word={encoded_utf8}>)"
         ]
-        msg = f"🔍 **【{kw}】** の巡回リンク\n" + "\n".join(links)
-        send_discord(msg)
+        message_parts.append(f"🔍 **【{kw}】**\n" + "\n".join(links))
+    
+    # トップページしか開かないサイトは末尾に1回だけまとめる
+    common_links = [
+        "\n🏠 **【トップページ（直検索不可サイト）】**",
+        "・[スクエニ e-STORE](<https://store.jp.square-enix.com/>)",
+        "・[Joshin web](<https://joshinweb.jp/>)"
+    ]
+    message_parts.append("\n".join(common_links))
+    
+    full_message = "\n\n".join(message_parts)
+    send_discord(full_message)
 
 def check_stock_and_notify():
     """30分おきの自動検知用（新商品・再入荷などの検知処理）"""
@@ -56,7 +66,7 @@ def main():
     
     event_name = os.environ.get("GITHUB_EVENT_NAME", "")
     
-    # 日本時間 7:30〜7:59の枠（朝7時台の後半実行）または手動実行時にリンク送信
+    # 日本時間 7:30〜7:59の枠、または手動実行時にリンク送信
     is_morning_link_time = (now_jst.hour == 7 and now_jst.minute >= 30)
     
     if is_morning_link_time or event_name == "workflow_dispatch":
