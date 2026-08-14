@@ -1,5 +1,6 @@
 import os
 import json
+import datetime
 import urllib.parse
 import urllib.request
 
@@ -27,38 +28,42 @@ def send_discord(msg):
     except Exception as e:
         print(f"Discord送信エラー: {e}")
 
-def build_search_links(keyword):
-    # 通常のUTF-8エンコード
-    encoded_utf8 = urllib.parse.quote(keyword)
-    
-    # ビックカメラ用: Shift_JIS(CP932)エンコード
-    encoded_sjis = urllib.parse.quote(keyword.encode('cp932', errors='ignore'))
+def send_daily_links():
+    """1日1回送信する巡回リンク集"""
+    send_discord("**【本日のドラクエメタリックシリーズ 巡回チェック】**")
+    for kw in KEYWORDS:
+        encoded_utf8 = urllib.parse.quote(kw)
+        encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
+        
+        links = [
+            f"・[あみあみ (在庫・割引)](https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30)",
+            f"・[Amazon (価格比較)](https://www.amazon.co.jp/s?k={encoded_utf8})",
+            f"・[ビックカメラ](https://www.biccamera.com/bc/category/?q={encoded_sjis})",
+            f"・[ヨドバシカメラ](https://www.yodobashi.com/?word={encoded_utf8})",
+            f"・[スクエニ e-STORE (公式TOP)](https://store.jp.square-enix.com/)",
+            f"・[Joshin web (公式TOP)](https://joshinweb.jp/)"
+        ]
+        msg = f"🔍 **【{kw}】** の巡回リンク\n" + "\n".join(links)
+        send_discord(msg)
 
-    # 各サイトの修正URL一覧
-    links = {
-        # スクエニ: キーワード検索+リダイレクト回避のパラメータ
-        "スクエニ e-STORE": f"https://store.jp.square-enix.com/item_list.html?x=0&y=0&keyword={encoded_utf8}",
-        "あみあみ": f"https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30",
-        "Amazon": f"https://www.amazon.co.jp/s?k={encoded_utf8}",
-        "ビックカメラ": f"https://www.biccamera.com/bc/category/?q={encoded_sjis}",
-        "ヨドバシカメラ": f"https://www.yodobashi.com/?word={encoded_utf8}",
-        # Joshin: 直リンク拒否を回避するWeb検索用URL
-        "Joshin web": f"https://joshinweb.jp/sitem/asp/spex.jsp?keyword={encoded_utf8}"
-    }
-    
-    body = f"🔍 **【{keyword}】** の巡回リンク\n"
-    for name, url in links.items():
-        body += f"・**{name}**: <{url}>\n"
-    return body
+def check_stock_and_notify():
+    """30分おきの自動検知用（新商品・再入荷などの検知処理）"""
+    pass
 
 def main():
-    # ヘッダー送信
-    send_discord("**【本日のドラクエメタリックシリーズ 巡回チェック】**")
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    now_jst = now_utc + datetime.timedelta(hours=9)
     
-    # キーワードごとに分割して送信
-    for kw in KEYWORDS:
-        msg = build_search_links(kw)
-        send_discord(msg)
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    
+    # 日本時間 7:30〜7:59の枠（朝7時台の後半実行）または手動実行時にリンク送信
+    is_morning_link_time = (now_jst.hour == 7 and now_jst.minute >= 30)
+    
+    if is_morning_link_time or event_name == "workflow_dispatch":
+        send_daily_links()
+    
+    # 自動検知チェック（毎回実行）
+    check_stock_and_notify()
 
 if __name__ == "__main__":
     main()
