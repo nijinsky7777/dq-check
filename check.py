@@ -292,34 +292,36 @@ def check_sofmap(item_config, price_history):
             price_history[store_key] = price
 
 def send_daily_links():
-    """1日1回送信する巡回リンク集（年月日表記 ＋ アイコン・プレビューが出ない形式）"""
+    """ご希望のレイアウトで巡回リンクを送信（アイコン・プレビュー非表示）"""
     now_jst = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
     date_str = now_jst.strftime('%Y年%m月%d日')
     
+    # ヘッダーと日付
     send_discord(f"🔔 **【ドラクエメタリックシリーズ 本日の巡回リンク】**\n📅 配信日: **{date_str}**", target_url=DISCORD_URL)
     time.sleep(1)
 
+    # 各アイテムごとのリストを作成
     for item in WATCH_ITEMS:
         kw = item["keyword"]
         encoded_utf8 = urllib.parse.quote(kw)
         encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
         
-        # <>で囲むことで、アイコンやプレビューカードの発生を完全に防ぎます
+        # URLの前後を < > で囲みつつ、テキストリンク風にするDiscordの特殊フォーマット
         lines = [
-            f"🔍 **【{kw}】**",
-            f"・あみあみ: <https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30>",
-            f"・Amazon: <https://www.amazon.co.jp/s?k={encoded_utf8}>",
-            f"・ビックカメラ: <https://www.biccamera.com/bc/category/?q={encoded_sjis}>",
-            f"・ソフマップ: <https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8}>",
-            f"・ヨドバシカメラ: <https://www.yodobashi.com/?word={encoded_utf8}>"
+            f"**【{kw}】**",
+            f"・[あみあみ](<{https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30}>)",
+            f"・[Amazon](<{https://www.amazon.co.jp/s?k={encoded_utf8}>)",
+            f"・[ビックカメラ](<{https://www.biccamera.com/bc/category/?q={encoded_sjis}>)",
+            f"・[ヨドバシカメラ](<{https://www.yodobashi.com/?word={encoded_utf8}>)"
         ]
         send_discord("\n".join(lines), target_url=DISCORD_URL)
         time.sleep(1)
 
+    # トップページ（直検索不可サイト）
     common_links = [
-        "🏠 **【公式・その他ショップ】**",
-        "・スクエニ e-STORE: <https://store.jp.square-enix.com/>",
-        "・Joshin web: <https://joshinweb.jp/>"
+        "**【トップページ（直検索不可サイト）】**",
+        "・[スクエニ e-STORE](<https://store.jp.square-enix.com/>)",
+        "・[Joshin web](<https://joshinweb.jp/>)"
     ]
     send_discord("\n".join(common_links), target_url=DISCORD_URL)
 
