@@ -331,30 +331,35 @@ def check_sofmap(item_config, price_history):
 # ---------------------------------------------------------
 
 def send_daily_links():
-    """1日1回送信する巡回リンク集"""
-    message_parts = ["**【ドラクエメタリックシリーズ 巡回チェック】**\n"]
+    """1日1回送信する巡回リンク集（分割送信で改行壊れ・Webカード乱入を防止）"""
+    # 1. タイトルヘッダーの送信
+    send_discord("**【ドラクエメタリックシリーズ 巡回チェック】**", target_url=DISCORD_URL)
+    time.sleep(1)
+
+    # 2. キーワード単位で分割して送信
     for item in WATCH_ITEMS:
         kw = item["keyword"]
         encoded_utf8 = urllib.parse.quote(kw)
         encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
         
-        links = [
+        lines = [
+            f"🔍 **【{kw}】**",
             f"・[あみあみ](https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30)",
             f"・[Amazon](https://www.amazon.co.jp/s?k={encoded_utf8})",
             f"・[ビックカメラ](https://www.biccamera.com/bc/category/?q={encoded_sjis})",
             f"・[ソフマップ](https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8})",
             f"・[ヨドバシカメラ](https://www.yodobashi.com/?word={encoded_utf8})"
         ]
-        message_parts.append(f"🔍 **【{kw}】**\n" + "\n".join(links))
-    
+        send_discord("\n".join(lines), target_url=DISCORD_URL)
+        time.sleep(1)
+
+    # 3. トップページリンクの送信
     common_links = [
-        "\n🏠 **【トップページ（直検索不可サイト）】**",
+        "🏠 **【トップページ（直検索不可サイト）】**",
         "・[スクエニ e-STORE](https://store.jp.square-enix.com/)",
         "・[Joshin web](https://joshinweb.jp/)"
     ]
-    message_parts.append("\n".join(common_links))
-    
-    send_discord("\n\n".join(message_parts), target_url=DISCORD_URL)
+    send_discord("\n".join(common_links), target_url=DISCORD_URL)
 
 def main():
     now_utc = datetime.datetime.now(datetime.timezone.utc)
