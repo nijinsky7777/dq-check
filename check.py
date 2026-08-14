@@ -9,9 +9,9 @@ import urllib.request
 from bs4 import BeautifulSoup
 
 DISCORD_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+DATA_FILE = "data/prices.json"
 
 # 監視対象アイテムの設定（商品キーワードと定価 MSRP）
-# 定価(msrp)を設定しておくことで「プレ値からの定価復帰」を正確に判定します
 WATCH_ITEMS = [
     {
         "keyword": "メタリックモンスターズギャラリー",
@@ -22,6 +22,29 @@ WATCH_ITEMS = [
         "msrp": 4500
     }
 ]
+
+# ---------------------------------------------------------
+# 0. 価格履歴データ（JSON）管理
+# ---------------------------------------------------------
+
+def load_price_history():
+    """保存された価格履歴をロード"""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"履歴読み込みエラー: {e}")
+    return {}
+
+def save_price_history(data):
+    """最新の価格履歴を保存"""
+    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"履歴保存エラー: {e}")
 
 # ---------------------------------------------------------
 # 1. 共通・通知・判定ロジック
@@ -105,7 +128,7 @@ def fetch_html(url, headers=None):
         print(f"取得エラー ({url}): {e}")
         return None
 
-def check_amiami(item_config):
+def check_amiami(item_config, price_history):
     """あみあみの検索・価格チェック"""
     sleep_random_delay(2, 5)
     kw = item_config["keyword"]
@@ -119,7 +142,6 @@ def check_amiami(item_config):
         return
 
     soup = BeautifulSoup(html, 'html.parser')
-    # あみあみの商品カード要素を抽出
     items = soup.find_all('li', class_=re.compile(r'product|item'))
     
     for item in items:
@@ -133,19 +155,21 @@ def check_amiami(item_config):
                 continue
             price = int(price_text)
             
-            # 購入済みチェック
             if is_ignored(name):
                 continue
                 
-            # TODO: 本来はデータベース/JSONファイルから前回価格(old_price)を呼び出す
-            old_price = None  
+            # JSONから前回価格を取得
+            old_price = price_history.get(name)
             
             notify, reason = should_notify(old_price, price, msrp)
             if notify:
                 msg = f"{reason}\n📦 **{name}**\n💰 価格: **{price:,}円**\n🔗 <{url}>"
                 send_discord(msg)
 
-def check_amazon(item_config):
+            # 最新価格で履歴を更新
+            price_history[name] = price
+
+def check_amazon(item_config, price_history):
     """Amazonの検索・価格チェック"""
     sleep_random_delay(3, 7)
     kw = item_config["keyword"]
@@ -159,7 +183,6 @@ def check_amazon(item_config):
         return
 
     soup = BeautifulSoup(html, 'html.parser')
-    # Amazon検索結果のカード要素
     items = soup.find_all('div', {'data-component-type': 's-search-result'})
     
     for item in items:
@@ -176,7 +199,8 @@ def check_amazon(item_config):
             if is_ignored(name):
                 continue
             
-            old_price = None  # DB等から取得する前回価格
+            # JSONから前回価格を取得
+            old_price = price_history.get(name)
             
             notify, reason = should_notify(old_price, price, msrp)
             if notify:
@@ -184,6 +208,9 @@ def check_amazon(item_config):
                 item_url = f"https://www.amazon.co.jp{link_elem['href']}" if link_elem and 'href' in link_elem.attrs else url
                 msg = f"{reason}\n📦 **{name}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
                 send_discord(msg)
+
+            # 最新価格で履歴を更新
+            price_history[name] = price
 
 # ---------------------------------------------------------
 # 3. スケジュール制御 ＆ メイン実行
@@ -230,12 +257,18 @@ def main():
     is_amazon_time = (hour == 0) or (minute < 15) or (event_name == "workflow_dispatch")
     is_retailer_time = (hour == 0 and minute < 15) or (hour % 4 == 0 and minute < 15) or (event_name == "workflow_dispatch")
 
+    # 既存の価格履歴をロード
+    price_history = load_price_history()
+
     for item_config in WATCH_ITEMS:
         if is_amazon_time:
-            check_amazon(item_config)
+            check_amazon(item_config, price_history)
             
         if is_retailer_time:
-            check_amiami(item_config)
+            check_amiami(item_config, price_history)
+
+    # 更新された最新の価格履歴をファイルへ保存
+    save_price_history(price_history)
 
 if __name__ == "__main__":
     main()
