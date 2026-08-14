@@ -1,14 +1,19 @@
 import os
+import json
 import urllib.parse
 import urllib.request
-import json
 
-# 設定
 DISCORD_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-KEYWORD = "ドラゴンクエスト メタリックモンスターズギャラリー"
+
+# 監視したいキーワードリスト
+KEYWORDS = [
+    "メタリックモンスターズギャラリー",
+    "メタリックアイテムズギャラリー"
+]
 
 def send_discord(msg):
     if not DISCORD_URL:
+        print(msg)
         return
     req = urllib.request.Request(
         DISCORD_URL,
@@ -20,14 +25,34 @@ def send_discord(msg):
     except Exception as e:
         print(f"送信失敗: {e}")
 
+def build_search_links(keyword):
+    encoded = urllib.parse.quote(keyword)
+    
+    # 各ショップの検索URL構築
+    links = {
+        "スクエニ e-STORE (公式定価)": f"https://store.jp.square-enix.com/item_list.html?keyword={encoded}",
+        "あみあみ (定価・割引)": f"https://slist.amiami.jp/top/search/list?s_keywords={encoded}&pagemax=30",
+        "Amazon (在庫・価格比較)": f"https://www.amazon.co.jp/s?k={encoded}",
+        "ビックカメラ": f"https://www.biccamera.com/bc/category/?q={encoded}",
+        "ヨドバシカメラ": f"https://www.yodobashi.com/?word={encoded}",
+        "Joshin web": f"https://joshinweb.jp/sitem/asp/search.jsp?keyword={encoded}"
+    }
+    
+    body = f"【🔍 **{keyword}** の巡回リンク】\n"
+    for name, url in links.items():
+        body += f"・**{name}**: <{url}>\n"
+    return body
+
 def main():
-    # 楽天の簡易検索（WEBページを直接検索する仕組み）
-    encoded_keyword = urllib.parse.quote(KEYWORD)
-    search_url = f"https://search.rakuten.co.jp/search/mall/{encoded_keyword}/"
+    message_parts = ["**【本日のドラクエメタリックシリーズ 巡回チェック】**\n"]
     
-    msg = f"**【本日のお知らせ】**\n『{KEYWORD}』のチェックが完了しました！\n最新の在庫・新商品一覧はこちらから確認できます：\n<{search_url}>"
+    for kw in KEYWORDS:
+        message_parts.append(build_search_links(kw))
     
-    send_discord(msg)
+    message_parts.append("※あみあみ・スクエニ公式は定期的に予約再開・定価再販が行われます。リンクから即時在庫を確認できます！")
+    
+    full_message = "\n".join(message_parts)
+    send_discord(full_message)
 
 if __name__ == "__main__":
     main()
