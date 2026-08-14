@@ -25,7 +25,7 @@ WATCH_ITEMS = [
 ]
 
 # ---------------------------------------------------------
-# 0. 価格履歴データ（JSON）管理 ＆ Discordファイル送信
+# 0. 価格履歴データ（JSON）管理 ＆ Discord送信関数
 # ---------------------------------------------------------
 
 def load_price_history():
@@ -47,71 +47,64 @@ def save_price_history(data):
     except Exception as e:
         print(f"履歴保存エラー: {e}")
 
-def send_file_to_discord(file_path, comment="価格リストファイルを送信します", target_url=None):
-    """Discord Webhookを使ってファイルを送信する関数"""
-    url = target_url or DISCORD_LOG_URL
-    if not url:
-        print("Webhook URLが設定されていません")
-        return
-
-    if not os.path.exists(file_path):
-        print(f"送信するファイルが存在しません: {file_path}")
-        return
-
-    boundary = '----WebKitFormBoundary' + ''.join(random.choices('0123456789abcdef', k=16))
-    
-    with open(file_path, 'rb') as f:
-        file_content = f.read()
-    
-    filename = os.path.basename(file_path)
-
-    body = []
-    # 1. チャットコメント部分
-    body.append(f'--{boundary}'.encode('utf-8'))
-    body.append(f'Content-Disposition: form-data; name="content"'.encode('utf-8'))
-    body.append(''.encode('utf-8'))
-    body.append(comment.encode('utf-8'))
-    
-    # 2. 添付ファイル部分
-    body.append(f'--{boundary}'.encode('utf-8'))
-    body.append(f'Content-Disposition: form-data; name="file"; filename="{filename}"'.encode('utf-8'))
-    body.append('Content-Type: application/json'.encode('utf-8'))
-    body.append(''.encode('utf-8'))
-    body.append(file_content)
-    body.append(f'--{boundary}--'.encode('utf-8'))
-    
-    payload = b'\r\n'.join(body)
-
-    headers = {
-        'Content-Type': f'multipart/form-data; boundary={boundary}',
-        'User-Agent': 'Mozilla/5.0'
-    }
-
-    req = urllib.request.Request(url, data=payload, headers=headers)
-    try:
-        with urllib.request.urlopen(req) as res:
-            print(f"ファイル送信成功 (Status: {res.status})")
-    except Exception as e:
-        print(f"Discordファイル送信エラー: {e}")
-
 def send_discord(msg, target_url=None):
-    """Discordへのテキスト送信（送信先URLを個別に指定可能）"""
+    """Discordへのテキスト送信（2000文字制限対策付き）"""
     url = target_url or DISCORD_URL
     if not url:
         print("Webhook URLが設定されていません")
         print(msg)
         return
+
+    # 2000文字を超える場合は分割して送信
+    max_len = 1900
+    chunks = [msg[i:i+max_len] for i in range(0, len(msg), max_len)]
+
+    for chunk in chunks:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"content": chunk}).encode('utf-8'),
+            headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+        )
+        try:
+            with urllib.request.urlopen(req) as res:
+                print(f"送信成功 (Status: {res.status})")
+        except Exception as e:
+            print(f"Discord送信エラー: {e}")
+        time.sleep(1)
+
+def send_price_list_text(price_history, target_url=None):
+    """保存されている価格リストをテキストメッセージとしてDiscordへ送信"""
+    if not price_history:
+        send_discord("📊 **【現在の保存価格リスト】**\n現在保存されている価格データはありません。", target_url=target_url)
+        return
+
+    now_str = datetime.datetime.now(datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=9))).strftime('%Y/%m/%d %H:%M')
     
-    req = urllib.request.Request(
-        url,
-        data=json.dumps({"content": msg}).encode('utf-8'),
-        headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
-    )
-    try:
-        with urllib.request.urlopen(req) as res:
-            print(f"送信成功 (Status: {res.status})")
-    except Exception as e:
-        print(f"Discord送信エラー: {e}")
+    header = f"📊 **【現在の保存価格リスト ({now_str} 時点)】**\n```\n"
+    footer = "\n```"
+    
+    lines = []
+    for name, price in price_history.items():
+        lines.append(f"{name}: {price:,}円")
+
+    # Discordのメッセージサイズ上限に合わせて整形して送信
+    content_body = "\n".join(lines)
+    full_message = header + content_body + footer
+
+    # もし全体が長すぎる場合はプレーンテキストとして分割送信
+    if len(full_message) <= 1900:
+        send_discord(full_message, target_url=target_url)
+    else:
+        send_discord(f"📊 **【現在の保存価格リスト ({now_str} 時点)】**", target_url=target_url)
+        # 10行ずつ分割して送信
+        chunk_lines = []
+        for line in lines:
+            chunk_lines.append(line)
+            if len(chunk_lines) >= 15:
+                send_discord("```\n" + "\n".join(chunk_lines) + "\n```", target_url=target_url)
+                chunk_lines = []
+        if chunk_lines:
+            send_discord("```\n" + "\n".join(chunk_lines) + "\n```", target_url=target_url)
 
 def sleep_random_delay(min_sec=3, max_sec=8):
     """Bot判定（BAN）を回避するため、アクセス時間をランダムに分散"""
@@ -347,7 +340,7 @@ def check_sofmap(item_config, price_history):
 
 def send_daily_links():
     """1日1回送信する巡回リンク集"""
-    message_parts = ["**【本日のドラクエメタリックシリーズ 巡回チェック】**\n"]
+    message_parts = ["**【ドラクエメタリックシリーズ 巡回チェック】**\n"]
     for item in WATCH_ITEMS:
         kw = item["keyword"]
         encoded_utf8 = urllib.parse.quote(kw)
@@ -379,13 +372,16 @@ def main():
 
     print(f"--- 実行開始 (JST: {now_jst.strftime('%Y-%m-%d %H:%M:%S')}) ---")
 
-    # 朝7:50枠または手動実行時は巡回リンク集を送信
-    if (hour == 7 and minute >= 30) or event_name == "workflow_dispatch":
+    # 朝7:50枠または手動実行時は巡回リンク集を【確実に送信】
+    is_manual_run = (event_name == "workflow_dispatch")
+    is_daily_time = (hour == 7 and minute >= 30)
+
+    if is_daily_time or is_manual_run:
         send_daily_links()
 
     # スケジュール制御（0時台高頻度 / 日中分散）
-    is_amazon_time = (hour == 0) or (minute < 15) or (event_name == "workflow_dispatch")
-    is_retailer_time = (hour == 0 and minute < 15) or (hour % 4 == 0 and minute < 15) or (event_name == "workflow_dispatch")
+    is_amazon_time = (hour == 0) or (minute < 15) or is_manual_run
+    is_retailer_time = (hour == 0 and minute < 15) or (hour % 4 == 0 and minute < 15) or is_manual_run
 
     # 既存の価格履歴をロード
     price_history = load_price_history()
@@ -402,14 +398,9 @@ def main():
     # 更新された最新の価格履歴をファイルへ保存
     save_price_history(price_history)
 
-    # 手動実行（workflow_dispatch）時はログ用チャンネルへ「prices.json」をファイル添付で送信
-    if event_name == "workflow_dispatch":
-        now_str = now_jst.strftime('%Y/%m/%d %H:%M')
-        send_file_to_discord(
-            DATA_FILE, 
-            comment=f"📊 **【手動実行】最新の価格一覧ファイル (`prices.json`) - {now_str}**",
-            target_url=DISCORD_LOG_URL
-        )
+    # 手動実行（workflow_dispatch）時はログ用チャンネル（未設定ならメイン）へ価格テキスト一覧を出力
+    if is_manual_run:
+        send_price_list_text(price_history, target_url=DISCORD_LOG_URL)
 
 if __name__ == "__main__":
     main()
