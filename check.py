@@ -28,15 +28,20 @@ def send_discord(msg):
         print(f"Discord送信エラー: {e}")
 
 def build_search_links(keyword):
-    encoded = urllib.parse.quote(keyword)
+    # 通常のUTF-8エンコード（大多数のサイト用）
+    encoded_utf8 = urllib.parse.quote(keyword)
     
+    # ビックカメラ用: Shift_JIS(CP932)でエンコードして文字化けを防止
+    encoded_sjis = urllib.parse.quote(keyword.encode('cp932', errors='ignore'))
+
+    # 各サイトの修正済みURL一覧
     links = {
-        "スクエニ e-STORE": f"https://store.jp.square-enix.com/item_list.html?keyword={encoded}",
-        "あみあみ": f"https://slist.amiami.jp/top/search/list?s_keywords={encoded}&pagemax=30",
-        "Amazon": f"https://www.amazon.co.jp/s?k={encoded}",
-        "ビックカメラ": f"https://www.biccamera.com/bc/category/?q={encoded}",
-        "ヨドバシカメラ": f"https://www.yodobashi.com/?word={encoded}",
-        "Joshin web": f"https://joshinweb.jp/sitem/asp/search.jsp?keyword={encoded}"
+        "スクエニ e-STORE": f"https://store.jp.square-enix.com/item_list.html?search_word={encoded_utf8}",
+        "あみあみ": f"https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30",
+        "Amazon": f"https://www.amazon.co.jp/s?k={encoded_utf8}",
+        "ビックカメラ": f"https://www.biccamera.com/bc/category/?q={encoded_sjis}",
+        "ヨドバシカメラ": f"https://www.yodobashi.com/?word={encoded_utf8}",
+        "Joshin web": f"https://joshinweb.jp/sitem/asp/search.jsp?kw={encoded_utf8}"
     }
     
     body = f"🔍 **【{keyword}】** の巡回リンク\n"
@@ -48,7 +53,7 @@ def main():
     # ヘッダー送信
     send_discord("**【本日のドラクエメタリックシリーズ 巡回チェック】**")
     
-    # キーワードごとに分けて送信（文字数オーバー対策）
+    # キーワードごとに分割して送信
     for kw in KEYWORDS:
         msg = build_search_links(kw)
         send_discord(msg)
