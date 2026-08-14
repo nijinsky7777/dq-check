@@ -9,13 +9,14 @@ import urllib.request
 from bs4 import BeautifulSoup
 
 DISCORD_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+DISCORD_LOG_URL = os.environ.get("DISCORD_WEBHOOK_URL_LOG") or DISCORD_URL  # 設定がなければメインと同じURLを使用
 DATA_FILE = "data/prices.json"
 
 # 監視対象アイテムの設定（商品キーワードと定価 MSRP）
 WATCH_ITEMS = [
     {
         "keyword": "メタリックモンスターズギャラリー",
-        "msrp": 9000  # 定価の目安（個別の定価判定にも使用）
+        "msrp": 9000
     },
     {
         "keyword": "メタリックアイテムズギャラリー",
@@ -24,7 +25,7 @@ WATCH_ITEMS = [
 ]
 
 # ---------------------------------------------------------
-# 0. 価格履歴データ（JSON）管理
+# 0. 価格履歴データ（JSON）管理 ＆ Discordファイル送信
 # ---------------------------------------------------------
 
 def load_price_history():
@@ -46,19 +47,63 @@ def save_price_history(data):
     except Exception as e:
         print(f"履歴保存エラー: {e}")
 
-# ---------------------------------------------------------
-# 1. 共通・通知・判定ロジック
-# ---------------------------------------------------------
+def send_file_to_discord(file_path, comment="価格リストファイルを送信します", target_url=None):
+    """Discord Webhookを使ってファイルを送信する関数"""
+    url = target_url or DISCORD_LOG_URL
+    if not url:
+        print("Webhook URLが設定されていません")
+        return
 
-def send_discord(msg):
-    """Discordへの通知送信"""
-    if not DISCORD_URL:
+    if not os.path.exists(file_path):
+        print(f"送信するファイルが存在しません: {file_path}")
+        return
+
+    boundary = '----WebKitFormBoundary' + ''.join(random.choices('0123456789abcdef', k=16))
+    
+    with open(file_path, 'rb') as f:
+        file_content = f.read()
+    
+    filename = os.path.basename(file_path)
+
+    body = []
+    # 1. チャットコメント部分
+    body.append(f'--{boundary}'.encode('utf-8'))
+    body.append(f'Content-Disposition: form-data; name="content"'.encode('utf-8'))
+    body.append(''.encode('utf-8'))
+    body.append(comment.encode('utf-8'))
+    
+    # 2. 添付ファイル部分
+    body.append(f'--{boundary}'.encode('utf-8'))
+    body.append(f'Content-Disposition: form-data; name="file"; filename="{filename}"'.encode('utf-8'))
+    body.append('Content-Type: application/json'.encode('utf-8'))
+    body.append(''.encode('utf-8'))
+    body.append(file_content)
+    body.append(f'--{boundary}--'.encode('utf-8'))
+    
+    payload = b'\r\n'.join(body)
+
+    headers = {
+        'Content-Type': f'multipart/form-data; boundary={boundary}',
+        'User-Agent': 'Mozilla/5.0'
+    }
+
+    req = urllib.request.Request(url, data=payload, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as res:
+            print(f"ファイル送信成功 (Status: {res.status})")
+    except Exception as e:
+        print(f"Discordファイル送信エラー: {e}")
+
+def send_discord(msg, target_url=None):
+    """Discordへのテキスト送信（送信先URLを個別に指定可能）"""
+    url = target_url or DISCORD_URL
+    if not url:
         print("Webhook URLが設定されていません")
         print(msg)
         return
     
     req = urllib.request.Request(
-        DISCORD_URL,
+        url,
         data=json.dumps({"content": msg}).encode('utf-8'),
         headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
     )
@@ -110,7 +155,7 @@ def should_notify(old_price, new_price, msrp):
     return False, ""
 
 # ---------------------------------------------------------
-# 2. Webスクレイピング処理 (あみあみ & Amazon)
+# 2. Webスクレイピング処理 (あみあみ, Amazon, ビックカメラ, ソフマップ)
 # ---------------------------------------------------------
 
 def fetch_html(url, headers=None):
@@ -158,16 +203,15 @@ def check_amiami(item_config, price_history):
             if is_ignored(name):
                 continue
                 
-            # JSONから前回価格を取得
-            old_price = price_history.get(name)
+            store_key = f"[あみあみ] {name}"
+            old_price = price_history.get(store_key)
             
             notify, reason = should_notify(old_price, price, msrp)
             if notify:
-                msg = f"{reason}\n📦 **{name}**\n💰 価格: **{price:,}円**\n🔗 <{url}>"
-                send_discord(msg)
+                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{url}>"
+                send_discord(msg, target_url=DISCORD_URL)
 
-            # 最新価格で履歴を更新
-            price_history[name] = price
+            price_history[store_key] = price
 
 def check_amazon(item_config, price_history):
     """Amazonの検索・価格チェック"""
@@ -199,18 +243,103 @@ def check_amazon(item_config, price_history):
             if is_ignored(name):
                 continue
             
-            # JSONから前回価格を取得
-            old_price = price_history.get(name)
+            store_key = f"[Amazon] {name}"
+            old_price = price_history.get(store_key)
             
             notify, reason = should_notify(old_price, price, msrp)
             if notify:
                 link_elem = title_elem.find('a')
                 item_url = f"https://www.amazon.co.jp{link_elem['href']}" if link_elem and 'href' in link_elem.attrs else url
-                msg = f"{reason}\n📦 **{name}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
-                send_discord(msg)
+                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
+                send_discord(msg, target_url=DISCORD_URL)
 
-            # 最新価格で履歴を更新
-            price_history[name] = price
+            price_history[store_key] = price
+
+def check_biccamera(item_config, price_history):
+    """ビックカメラの検索・価格チェック"""
+    sleep_random_delay(3, 6)
+    kw = item_config["keyword"]
+    msrp = item_config["msrp"]
+    encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
+    url = f"https://www.biccamera.com/bc/category/?q={encoded_sjis}"
+    
+    print(f"ビックカメラチェック中: {kw}")
+    html = fetch_html(url)
+    if not html:
+        return
+
+    soup = BeautifulSoup(html, 'html.parser')
+    items = soup.find_all('div', class_=re.compile(r'bcs_box|bcs_listItem'))
+    
+    for item in items:
+        title_elem = item.find('p', class_=re.compile(r'bcs_title')) or item.find('a', class_=re.compile(r'title'))
+        price_elem = item.find('p', class_=re.compile(r'bcs_price')) or item.find('span', class_=re.compile(r'price'))
+        
+        if title_elem and price_elem:
+            name = title_elem.text.strip()
+            price_text = re.sub(r'[^\d]', '', price_elem.text)
+            if not price_text:
+                continue
+            price = int(price_text)
+            
+            if is_ignored(name):
+                continue
+            
+            link_elem = title_elem.find('a') if title_elem.name != 'a' else title_elem
+            item_url = f"https://www.biccamera.com{link_elem['href']}" if link_elem and 'href' in link_elem.attrs else url
+            
+            store_key = f"[ビックカメラ] {name}"
+            old_price = price_history.get(store_key)
+            
+            notify, reason = should_notify(old_price, price, msrp)
+            if notify:
+                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
+                send_discord(msg, target_url=DISCORD_URL)
+
+            price_history[store_key] = price
+
+def check_sofmap(item_config, price_history):
+    """ソフマップのアキバ☆ソフマップ検索・価格チェック"""
+    sleep_random_delay(3, 6)
+    kw = item_config["keyword"]
+    msrp = item_config["msrp"]
+    encoded_utf8 = urllib.parse.quote(kw)
+    url = f"https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8}"
+    
+    print(f"ソフマップチェック中: {kw}")
+    html = fetch_html(url)
+    if not html:
+        return
+
+    soup = BeautifulSoup(html, 'html.parser')
+    items = soup.find_all('div', class_=re.compile(r'product_box|item_box|product_list_item'))
+    
+    for item in items:
+        title_elem = item.find('p', class_=re.compile(r'name|title')) or item.find('a', class_=re.compile(r'name'))
+        price_elem = item.find('p', class_=re.compile(r'price')) or item.find('span', class_=re.compile(r'price'))
+        
+        if title_elem and price_elem:
+            name = title_elem.text.strip()
+            price_text = re.sub(r'[^\d]', '', price_elem.text)
+            if not price_text:
+                continue
+            price = int(price_text)
+            
+            if is_ignored(name):
+                continue
+            
+            link_elem = title_elem.find('a') if title_elem.name != 'a' else title_elem
+            item_url = f"https://a.sofmap.com{link_elem['href']}" if link_elem and 'href' in link_elem.attrs else url
+            
+            store_key = f"[ソフマップ] {name}"
+            old_price = price_history.get(store_key)
+            
+            notify, reason = should_notify(old_price, price, msrp)
+            if notify:
+                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
+                send_discord(msg, target_url=DISCORD_URL)
+
+            price_history[store_key] = price
 
 # ---------------------------------------------------------
 # 3. スケジュール制御 ＆ メイン実行
@@ -227,6 +356,7 @@ def send_daily_links():
             f"・[あみあみ](<https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30>)",
             f"・[Amazon](<https://www.amazon.co.jp/s?k={encoded_utf8}>)",
             f"・[ビックカメラ](<https://www.biccamera.com/bc/category/?q={encoded_sjis}>)",
+            f"・[ソフマップ](<https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8}>)",
             f"・[ヨドバシカメラ](<https://www.yodobashi.com/?word={encoded_utf8}>)"
         ]
         message_parts.append(f"🔍 **【{kw}】**\n" + "\n".join(links))
@@ -237,7 +367,7 @@ def send_daily_links():
         "・[Joshin web](<https://joshinweb.jp/>)"
     ]
     message_parts.append("\n".join(common_links))
-    send_discord("\n\n".join(message_parts))
+    send_discord("\n\n".join(message_parts), target_url=DISCORD_URL)
 
 def main():
     now_utc = datetime.datetime.now(datetime.timezone.utc)
@@ -266,9 +396,20 @@ def main():
             
         if is_retailer_time:
             check_amiami(item_config, price_history)
+            check_biccamera(item_config, price_history)
+            check_sofmap(item_config, price_history)
 
     # 更新された最新の価格履歴をファイルへ保存
     save_price_history(price_history)
+
+    # 手動実行（workflow_dispatch）時はログ用チャンネルへ「prices.json」をファイル添付で送信
+    if event_name == "workflow_dispatch":
+        now_str = now_jst.strftime('%Y/%m/%d %H:%M')
+        send_file_to_discord(
+            DATA_FILE, 
+            comment=f"📊 **【手動実行】最新の価格一覧ファイル (`prices.json`) - {now_str}**",
+            target_url=DISCORD_LOG_URL
+        )
 
 if __name__ == "__main__":
     main()
