@@ -77,7 +77,7 @@ def send_price_list_text(price_history, target_url=None):
         send_discord("📊 **【現在の保存価格リスト】**\n現在保存されている価格データはありません。", target_url=target_url)
         return
 
-    now_str = datetime.datetime.now(datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=9))).strftime('%Y/%m/%d %H:%M')
+    now_str = datetime.datetime.now(datetime.timezone.utc).astimezone(datetime.timedelta(hours=9)).strftime('%Y/%m/%d %H:%M')
     
     header = f"📊 **【取得価格リスト ({now_str} 時点)】**\n```\n"
     footer = "\n```"
@@ -193,7 +193,7 @@ def check_amiami(item_config, price_history):
             
             notify, reason = should_notify(old_price, price, msrp)
             if notify:
-                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{url}>"
+                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 {url}"
                 send_discord(msg, target_url=DISCORD_URL)
 
             price_history[store_key] = price
@@ -235,7 +235,7 @@ def check_amazon(item_config, price_history):
             if notify:
                 link_elem = title_elem.find('a')
                 item_url = f"https://www.amazon.co.jp{link_elem['href']}" if link_elem and 'href' in link_elem.attrs else url
-                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
+                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 {item_url}"
                 send_discord(msg, target_url=DISCORD_URL)
 
             price_history[store_key] = price
@@ -278,7 +278,7 @@ def check_biccamera(item_config, price_history):
             
             notify, reason = should_notify(old_price, price, msrp)
             if notify:
-                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
+                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 {item_url}"
                 send_discord(msg, target_url=DISCORD_URL)
 
             price_history[store_key] = price
@@ -321,7 +321,7 @@ def check_sofmap(item_config, price_history):
             
             notify, reason = should_notify(old_price, price, msrp)
             if notify:
-                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
+                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 {item_url}"
                 send_discord(msg, target_url=DISCORD_URL)
 
             price_history[store_key] = price
@@ -332,33 +332,29 @@ def check_sofmap(item_config, price_history):
 
 def send_daily_links():
     """1日1回送信する巡回リンク集"""
-    send_discord("**【ドラクエメタリックシリーズ 巡回チェック】**", target_url=DISCORD_URL)
-    
+    message_parts = ["**【ドラクエメタリックシリーズ 巡回チェック】**\n"]
     for item in WATCH_ITEMS:
         kw = item["keyword"]
-        # 改行コードなどが混入しないようストリップ＆エンコード
-        clean_kw = kw.strip()
-        encoded_utf8 = urllib.parse.quote(clean_kw)
-        encoded_sjis = urllib.parse.quote(clean_kw.encode('cp932', errors='ignore'))
+        encoded_utf8 = urllib.parse.quote(kw)
+        encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
         
-        # 1項目ごとに独立したメッセージとして組む（長いURLの折返し・破損防止）
-        lines = [
-            f"🔍 **【{clean_kw}】**",
+        links = [
             f"・[あみあみ](https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30)",
             f"・[Amazon](https://www.amazon.co.jp/s?k={encoded_utf8})",
             f"・[ビックカメラ](https://www.biccamera.com/bc/category/?q={encoded_sjis})",
             f"・[ソフマップ](https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8})",
             f"・[ヨドバシカメラ](https://www.yodobashi.com/?word={encoded_utf8})"
         ]
-        send_discord("\n".join(lines), target_url=DISCORD_URL)
-        time.sleep(1)
-
+        message_parts.append(f"🔍 **【{kw}】**\n" + "\n".join(links))
+    
     common_links = [
-        "🏠 **【トップページ（直検索不可サイト）】**",
+        "\n🏠 **【トップページ（直検索不可サイト）】**",
         "・[スクエニ e-STORE](https://store.jp.square-enix.com/)",
         "・[Joshin web](https://joshinweb.jp/)"
     ]
-    send_discord("\n".join(common_links), target_url=DISCORD_URL)
+    message_parts.append("\n".join(common_links))
+    
+    send_discord("\n\n".join(message_parts), target_url=DISCORD_URL)
 
 def main():
     now_utc = datetime.datetime.now(datetime.timezone.utc)
@@ -396,7 +392,7 @@ def main():
     # 4. 最新の価格履歴をファイルへ保存
     save_price_history(price_history)
 
-    # 5. 【修正箇所】スクレイピング完了後に価格テキスト一覧を出力
+    # 5. スクレイピング完了後に価格テキスト一覧を出力
     if is_manual_run:
         send_price_list_text(price_history, target_url=DISCORD_LOG_URL)
 
