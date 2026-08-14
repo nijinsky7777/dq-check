@@ -12,6 +12,7 @@ DISCORD_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DISCORD_LOG_URL = os.environ.get("DISCORD_WEBHOOK_URL_LOG") or DISCORD_URL
 DATA_FILE = "data/prices.json"
 
+# 監視対象アイテムの設定
 WATCH_ITEMS = [
     {
         "keyword": "メタリックモンスターズギャラリー"
@@ -64,7 +65,7 @@ def send_discord(msg, target_url=None):
 
 def send_price_list_text(price_history, target_url=None):
     if not price_history:
-        send_discord("📊 **【現在の保存価格リスト】**\n現在保存されている価格データはありません。\n（※まだ一度も価格が正常に取得できていないか、初回実行中です）", target_url=target_url)
+        send_discord("📊 **【現在の保存価格リスト】**\n現在保存されている価格データはありません。", target_url=target_url)
         return
 
     now_jst = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
@@ -93,20 +94,16 @@ def send_price_list_text(price_history, target_url=None):
         if chunk_lines:
             send_discord("```\n" + "\n".join(chunk_lines) + "\n```", target_url=target_url)
 
-def sleep_random_delay(min_sec=3, max_sec=8):
+def sleep_random_delay(min_sec=3, max_sec=6):
     wait_time = random.uniform(min_sec, max_sec)
     print(f"[{wait_time:.1f}秒のアクセス分散待機中...]")
     time.sleep(wait_time)
-
-def is_ignored(item_name):
-    return False
 
 def should_notify(old_price, new_price):
     if new_price is None or old_price is None:
         return False, ""
     
     price_diff = old_price - new_price
-    
     if price_diff < 100:
         return False, ""
 
@@ -117,12 +114,11 @@ def should_notify(old_price, new_price):
 
     return False, ""
 
-def fetch_html(url, headers=None):
-    if headers is None:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8'
-        }
+def fetch_html(url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8'
+    }
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as res:
@@ -132,7 +128,8 @@ def fetch_html(url, headers=None):
         return None
 
 def check_amiami(item_config, price_history):
-    sleep_random_delay(2, 5)
+    """あみあみの検索・価格チェック"""
+    sleep_random_delay(2, 4)
     kw = item_config["keyword"]
     encoded_utf8 = urllib.parse.quote(kw)
     url = f"https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30"
@@ -143,7 +140,9 @@ def check_amiami(item_config, price_history):
         return
 
     soup = BeautifulSoup(html, 'html.parser')
+    # あみあみの商品要素（仕様に合わせて調整）
     items = soup.find_all('li', class_=re.compile(r'product|item'))
+    print(f"あみあみヒット件数: {len(items)}件")
     
     for item in items:
         name_elem = item.find(class_=re.compile(r'name|title'))
@@ -156,9 +155,6 @@ def check_amiami(item_config, price_history):
                 continue
             price = int(price_text)
             
-            if is_ignored(name):
-                continue
-                
             store_key = f"[あみあみ] {name}"
             old_price = price_history.get(store_key)
             
@@ -169,130 +165,8 @@ def check_amiami(item_config, price_history):
 
             price_history[store_key] = price
 
-def check_amazon(item_config, price_history):
-    sleep_random_delay(3, 7)
-    kw = item_config["keyword"]
-    encoded_utf8 = urllib.parse.quote(kw)
-    url = f"https://www.amazon.co.jp/s?k={encoded_utf8}"
-    
-    print(f"Amazonチェック中: {kw}")
-    html = fetch_html(url)
-    if not html:
-        return
-
-    soup = BeautifulSoup(html, 'html.parser')
-    items = soup.find_all('div', {'data-component-type': 's-search-result'})
-    
-    for item in items:
-        title_elem = item.find('h2')
-        price_whole = item.find('span', class_='a-price-whole')
-        
-        if title_elem and price_whole:
-            name = title_elem.text.strip()
-            price_text = re.sub(r'[^\d]', '', price_whole.text)
-            if not price_text:
-                continue
-            price = int(price_text)
-            
-            if is_ignored(name):
-                continue
-            
-            store_key = f"[Amazon] {name}"
-            old_price = price_history.get(store_key)
-            
-            notify, reason = should_notify(old_price, price)
-            if notify:
-                link_elem = title_elem.find('a')
-                item_url = f"https://www.amazon.co.jp{link_elem['href']}" if link_elem and 'href' in link_elem.attrs else url
-                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
-                send_discord(msg, target_url=DISCORD_URL)
-
-            price_history[store_key] = price
-
-def check_biccamera(item_config, price_history):
-    sleep_random_delay(3, 6)
-    kw = item_config["keyword"]
-    encoded_sjis = urllib.parse.quote(kw.encode('cp932', errors='ignore'))
-    url = f"https://www.biccamera.com/bc/category/?q={encoded_sjis}"
-    
-    print(f"ビックカメラチェック中: {kw}")
-    html = fetch_html(url)
-    if not html:
-        return
-
-    soup = BeautifulSoup(html, 'html.parser')
-    items = soup.find_all('div', class_=re.compile(r'bcs_box|bcs_listItem'))
-    
-    for item in items:
-        title_elem = item.find('p', class_=re.compile(r'bcs_title')) or item.find('a', class_=re.compile(r'title'))
-        price_elem = item.find('p', class_=re.compile(r'bcs_price')) or item.find('span', class_=re.compile(r'price'))
-        
-        if title_elem and price_elem:
-            name = title_elem.text.strip()
-            price_text = re.sub(r'[^\d]', '', price_elem.text)
-            if not price_text:
-                continue
-            price = int(price_text)
-            
-            if is_ignored(name):
-                continue
-            
-            link_elem = title_elem.find('a') if title_elem.name != 'a' else title_elem
-            item_url = f"https://www.biccamera.com{link_elem['href']}" if link_elem and 'href' in link_elem.attrs else url
-            
-            store_key = f"[ビックカメラ] {name}"
-            old_price = price_history.get(store_key)
-            
-            notify, reason = should_notify(old_price, price)
-            if notify:
-                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
-                send_discord(msg, target_url=DISCORD_URL)
-
-            price_history[store_key] = price
-
-def check_sofmap(item_config, price_history):
-    sleep_random_delay(3, 6)
-    kw = item_config["keyword"]
-    encoded_utf8 = urllib.parse.quote(kw)
-    url = f"https://a.sofmap.com/search_result.aspx?gid=&keyword={encoded_utf8}"
-    
-    print(f"ソフマップチェック中: {kw}")
-    html = fetch_html(url)
-    if not html:
-        return
-
-    soup = BeautifulSoup(html, 'html.parser')
-    items = soup.find_all('div', class_=re.compile(r'product_box|item_box|product_list_item'))
-    
-    for item in items:
-        title_elem = item.find('p', class_=re.compile(r'name|title')) or item.find('a', class_=re.compile(r'name'))
-        price_elem = item.find('p', class_=re.compile(r'price')) or item.find('span', class_=re.compile(r'price'))
-        
-        if title_elem and price_elem:
-            name = title_elem.text.strip()
-            price_text = re.sub(r'[^\d]', '', price_elem.text)
-            if not price_text:
-                continue
-            price = int(price_text)
-            
-            if is_ignored(name):
-                continue
-            
-            link_elem = title_elem.find('a') if title_elem.name != 'a' else title_elem
-            item_url = f"https://a.sofmap.com{link_elem['href']}" if link_elem and 'href' in link_elem.attrs else url
-            
-            store_key = f"[ソフマップ] {name}"
-            old_price = price_history.get(store_key)
-            
-            notify, reason = should_notify(old_price, price)
-            if notify:
-                msg = f"{reason}\n📦 **{store_key}**\n💰 価格: **{price:,}円**\n🔗 <{item_url}>"
-                send_discord(msg, target_url=DISCORD_URL)
-
-            price_history[store_key] = price
-
 def send_daily_links():
-    """ご希望のレイアウトで巡回リンクを送信（年月日＋アイコン・プレビュー非表示）"""
+    """巡回リンク集送信"""
     now_jst = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
     date_str = now_jst.strftime('%Y年%m月%d日')
     
@@ -337,19 +211,10 @@ def main():
     if is_daily_time or is_manual_run:
         send_daily_links()
 
-    is_amazon_time = (hour == 0) or (minute < 15) or is_manual_run
-    is_retailer_time = (hour == 0 and minute < 15) or (hour % 4 == 0 and minute < 15) or is_manual_run
-
     price_history = load_price_history()
 
     for item_config in WATCH_ITEMS:
-        if is_amazon_time:
-            check_amazon(item_config, price_history)
-            
-        if is_retailer_time:
-            check_amiami(item_config, price_history)
-            check_biccamera(item_config, price_history)
-            check_sofmap(item_config, price_history)
+        check_amiami(item_config, price_history)
 
     save_price_history(price_history)
 
