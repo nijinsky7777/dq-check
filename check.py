@@ -9,7 +9,7 @@ import urllib.request
 from bs4 import BeautifulSoup
 
 DISCORD_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-DISCORD_LOG_URL = os.environ.get("DISCORD_WEBHOOK_URL_LOG") or DISCORD_URL  # 設定がなければメインと同じURLを使用
+DISCORD_LOG_URL = os.environ.get("DISCORD_WEBHOOK_URL_LOG") or DISCORD_URL
 DATA_FILE = "data/prices.json"
 
 # 監視対象アイテムの設定（商品キーワードと定価 MSRP）
@@ -55,7 +55,6 @@ def send_discord(msg, target_url=None):
         print(msg)
         return
 
-    # 2000文字を超える場合は分割して送信
     max_len = 1900
     chunks = [msg[i:i+max_len] for i in range(0, len(msg), max_len)]
 
@@ -80,23 +79,20 @@ def send_price_list_text(price_history, target_url=None):
 
     now_str = datetime.datetime.now(datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=9))).strftime('%Y/%m/%d %H:%M')
     
-    header = f"📊 **【現在の保存価格リスト ({now_str} 時点)】**\n```\n"
+    header = f"📊 **【取得価格リスト ({now_str} 時点)】**\n```\n"
     footer = "\n```"
     
     lines = []
     for name, price in price_history.items():
         lines.append(f"{name}: {price:,}円")
 
-    # Discordのメッセージサイズ上限に合わせて整形して送信
     content_body = "\n".join(lines)
     full_message = header + content_body + footer
 
-    # もし全体が長すぎる場合はプレーンテキストとして分割送信
     if len(full_message) <= 1900:
         send_discord(full_message, target_url=target_url)
     else:
-        send_discord(f"📊 **【現在の保存価格リスト ({now_str} 時点)】**", target_url=target_url)
-        # 10行ずつ分割して送信
+        send_discord(f"📊 **【取得価格リスト ({now_str} 時点)】**", target_url=target_url)
         chunk_lines = []
         for line in lines:
             chunk_lines.append(line)
@@ -118,28 +114,24 @@ def is_ignored(item_name):
 
 def should_notify(old_price, new_price, msrp):
     """
-    【パターンB】定価復帰 ＋ 5% / 1000円以上値下げ判定
+    定価復帰 ＋ 5% / 1000円以上値下げ判定
     """
     if new_price is None:
         return False, ""
     
-    # 1. 【最優先】プレ値（定価オーバー）から「定価以下」になった瞬間を検知
     if new_price <= msrp:
         if old_price is None or old_price > msrp:
             reason = f"🚨 **【定価復帰/定価以下入荷】**\n定価（{msrp:,}円）以下での販売を検知しました！"
             return True, reason
 
-    # 2. 初回取得時（かつ定価より高い状態）なら保存のみで通知なし
     if old_price is None:
         return False, ""
     
     price_diff = old_price - new_price
     
-    # 100円未満の微変動や値上がりは無視
     if price_diff < 100:
         return False, ""
 
-    # 3. 通常の値下がり判定（5%以上 または 1000円以上）
     drop_rate = (price_diff / old_price) * 100
     if drop_rate >= 5.0 or price_diff >= 1000:
         reason = f"📉 **【値下げ検知】** {price_diff:,}円ダウン（-{drop_rate:.1f}%）"
@@ -372,20 +364,20 @@ def main():
 
     print(f"--- 実行開始 (JST: {now_jst.strftime('%Y-%m-%d %H:%M:%S')}) ---")
 
-    # 朝7:50枠または手動実行時は巡回リンク集を【確実に送信】
     is_manual_run = (event_name == "workflow_dispatch")
     is_daily_time = (hour == 7 and minute >= 30)
 
+    # 1. 巡回リンクの送信
     if is_daily_time or is_manual_run:
         send_daily_links()
 
-    # スケジュール制御（0時台高頻度 / 日中分散）
     is_amazon_time = (hour == 0) or (minute < 15) or is_manual_run
     is_retailer_time = (hour == 0 and minute < 15) or (hour % 4 == 0 and minute < 15) or is_manual_run
 
-    # 既存の価格履歴をロード
+    # 2. 既存の価格履歴をロード
     price_history = load_price_history()
 
+    # 3. 各サイトの価格チェック実行＆履歴に追加
     for item_config in WATCH_ITEMS:
         if is_amazon_time:
             check_amazon(item_config, price_history)
@@ -395,10 +387,10 @@ def main():
             check_biccamera(item_config, price_history)
             check_sofmap(item_config, price_history)
 
-    # 更新された最新の価格履歴をファイルへ保存
+    # 4. 最新の価格履歴をファイルへ保存
     save_price_history(price_history)
 
-    # 手動実行（workflow_dispatch）時はログ用チャンネル（未設定ならメイン）へ価格テキスト一覧を出力
+    # 5. 【修正箇所】スクレイピング完了後に価格テキスト一覧を出力
     if is_manual_run:
         send_price_list_text(price_history, target_url=DISCORD_LOG_URL)
 
