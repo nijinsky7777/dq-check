@@ -13,8 +13,9 @@ jobs:
       contents: write     # 履歴ファイル(prices.json)をコミット＆プッシュするための書き込み権限
 
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.4.0
+      # 最新のメジャーバージョン(@v5, @v5)に変更
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
