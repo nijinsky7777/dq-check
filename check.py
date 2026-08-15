@@ -7,7 +7,6 @@ import json
 
 DISCORD_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# キーワードは省略せずに元のフルネームに戻しました
 WATCH_ITEMS = [
     "メタリックモンスターズギャラリー",
     "メタリックアイテムズギャラリー"
@@ -38,19 +37,19 @@ def main():
     time.sleep(1)
 
     for kw in WATCH_ITEMS:
-        # safe='' を指定することで、アルファベット記号の混入を防ぎ100%確実にエンコードします
+        # 現代の標準文字コード (スマホ・楽天対応)
         encoded_utf8 = urllib.parse.quote(kw, safe='')
         
-        # ビックカメラ・ソフマップ用のエンコード (Shift_JIS)
+        # 古い文字コード (PC・本家サイト専用)
         encoded_sjis = urllib.parse.quote(kw.encode('shift_jis', errors='replace'), safe='')
         
         lines = [
             f"**【{kw}】**",
             f"・[あみあみ](<https://slist.amiami.jp/top/search/list?s_keywords={encoded_utf8}&pagemax=30>)",
             f"・[Amazon](<https://www.amazon.co.jp/s?k={encoded_utf8}>)",
-            f"・[ビックカメラ](<https://www.biccamera.com/bc/category/?q={encoded_sjis}>)",
             f"・[ヨドバシカメラ](<https://www.yodobashi.com/?word={encoded_utf8}>)",
-            f"・[ソフマップ](<https://www.sofmap.com/search_result.aspx?keyword={encoded_sjis}>)"
+            f"・ビックカメラ: [📱スマホ用(楽天版)](<https://search.rakuten.co.jp/search/mall/{encoded_utf8}/?sid=350290>) / [💻PC用(本家)](<https://www.biccamera.com/bc/category/?q={encoded_sjis}>)",
+            f"・ソフマップ: [📱スマホ用(楽天版)](<https://search.rakuten.co.jp/search/mall/{encoded_utf8}/?sid=269553>) / [💻PC用(本家)](<https://www.sofmap.com/search_result.aspx?keyword={encoded_sjis}>)"
         ]
         send_discord("\n".join(lines))
         time.sleep(1)
