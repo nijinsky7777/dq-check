@@ -7,6 +7,7 @@ import json
 
 DISCORD_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
+# キーワードは省略せずに元のフルネームに戻しました
 WATCH_ITEMS = [
     "メタリックモンスターズギャラリー",
     "メタリックアイテムズギャラリー"
@@ -37,12 +38,11 @@ def main():
     time.sleep(1)
 
     for kw in WATCH_ITEMS:
-        # Amazon・あみあみ・ヨドバシ用のエンコード (UTF-8)
-        encoded_utf8 = urllib.parse.quote(kw)
+        # safe='' を指定することで、アルファベット記号の混入を防ぎ100%確実にエンコードします
+        encoded_utf8 = urllib.parse.quote(kw, safe='')
         
         # ビックカメラ・ソフマップ用のエンコード (Shift_JIS)
-        # ※ errors='replace' で安全に変換し文字化けを防止します
-        encoded_sjis = urllib.parse.quote(kw.encode('shift_jis', errors='replace'))
+        encoded_sjis = urllib.parse.quote(kw.encode('shift_jis', errors='replace'), safe='')
         
         lines = [
             f"**【{kw}】**",
@@ -63,7 +63,6 @@ def main():
     send_discord("\n".join(common_links))
     time.sleep(1)
 
-    # もしリポジトリに「retail_prices.txt」という価格メモファイルがあれば、一緒に送信する
     price_file_path = "retail_prices.txt"
     if os.path.exists(price_file_path):
         try:
